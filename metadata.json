@@ -1,0 +1,5 @@
+{
+  "name": "AI Reel Maker",
+  "description": "Generate stunning video reels from simple text prompts and add custom voice-overs from a script. Powered by Google's Gemini API.",
+  "requestFramePermissions": []
+}
