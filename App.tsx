@@ -3,12 +3,14 @@ import { generateVideo, pollVideoOperation, generateAudio } from './services/gem
 import Loader from './components/Loader';
 import VideoPlayer from './components/VideoPlayer';
 import { SparklesIcon, VideoCameraIcon, XMarkIcon } from './components/Icons';
-import type { Operation } from '@google/genai';
+// FIX: Import GenerateVideosResponse and use Operation<GenerateVideosResponse> to fix generic type error.
+import type { Operation, GenerateVideosResponse } from '@google/genai';
 import './types';
 
 const App: React.FC = () => {
     const [prompt, setPrompt] = useState('');
     const [script, setScript] = useState('');
+    const [resolution, setResolution] = useState<'720p' | '1080p'>('720p');
     const [isLoading, setIsLoading] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState('Initializing video generation...');
     const [error, setError] = useState<string | null>(null);
@@ -68,7 +70,8 @@ const App: React.FC = () => {
 
             // Step 2: Generate Video
             setLoadingMessage('Starting video generation process...');
-            let initialOperation: Operation = await generateVideo(prompt);
+            // FIX: Use Operation<GenerateVideosResponse> to fix "Generic type 'Operation<T>' requires 1 type argument(s)." error.
+            let initialOperation: Operation<GenerateVideosResponse> = await generateVideo(prompt, resolution);
 
             // Step 3: Poll for video completion
             setLoadingMessage('Video is rendering... this may take a few minutes.');
@@ -173,6 +176,19 @@ const App: React.FC = () => {
                                     onChange={(e) => setPrompt(e.target.value)}
                                     disabled={isLoading}
                                 />
+                            </div>
+                             <div>
+                                <label htmlFor="resolution" className="block text-sm font-medium text-gray-300 mb-2">Video Quality</label>
+                                <select
+                                    id="resolution"
+                                    className="w-full bg-gray-700 border border-gray-600 rounded-lg p-3 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors disabled:opacity-50"
+                                    value={resolution}
+                                    onChange={(e) => setResolution(e.target.value as '720p' | '1080p')}
+                                    disabled={isLoading}
+                                >
+                                    <option value="720p">720p (Faster)</option>
+                                    <option value="1080p">1080p (Higher Quality)</option>
+                                </select>
                             </div>
                             <div>
                                 <label htmlFor="script" className="block text-sm font-medium text-gray-300 mb-2">Voice-over Script (Optional)</label>

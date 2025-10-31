@@ -8,7 +8,8 @@ declare global {
   }
 
   interface Window {
-    aistudio: AIStudio;
+    // FIX: Made aistudio optional to fix "All declarations of 'aistudio' must have identical modifiers." error.
+    aistudio?: AIStudio;
     webkitAudioContext: typeof AudioContext;
   }
 }

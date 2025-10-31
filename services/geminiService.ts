@@ -1,4 +1,5 @@
-import { GoogleGenAI, Modality, type Operation } from '@google/genai';
+// FIX: Import GenerateVideosResponse and use Operation<GenerateVideosResponse> to fix generic type error.
+import { GoogleGenAI, Modality, type Operation, type GenerateVideosResponse } from '@google/genai';
 
 const POLLING_INTERVAL_MS = 10000; // Poll every 10 seconds
 
@@ -13,7 +14,8 @@ const LOADING_MESSAGES = [
     "Almost there, adding the final touches..."
 ];
 
-export const generateVideo = async (prompt: string): Promise<Operation> => {
+// FIX: Update return type to be Operation<GenerateVideosResponse> to fix generic type error.
+export const generateVideo = async (prompt: string, resolution: '720p' | '1080p'): Promise<Operation<GenerateVideosResponse>> => {
     if (!process.env.API_KEY) {
         throw new Error("API_KEY environment variable not set.");
     }
@@ -24,7 +26,7 @@ export const generateVideo = async (prompt: string): Promise<Operation> => {
         prompt,
         config: {
             numberOfVideos: 1,
-            resolution: '720p',
+            resolution,
             aspectRatio: '9:16', // Portrait for reels
         }
     });
@@ -32,10 +34,11 @@ export const generateVideo = async (prompt: string): Promise<Operation> => {
     return operation;
 };
 
+// FIX: Update parameter and return types to be Operation<GenerateVideosResponse> to fix generic type errors.
 export const pollVideoOperation = async (
-    operation: Operation, 
+    operation: Operation<GenerateVideosResponse>, 
     onProgress: (message: string) => void
-): Promise<Operation> => {
+): Promise<Operation<GenerateVideosResponse>> => {
     if (!process.env.API_KEY) {
         throw new Error("API_KEY environment variable not set.");
     }
