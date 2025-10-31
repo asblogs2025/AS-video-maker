@@ -72,7 +72,7 @@ export const pollVideoOperation = async (
     return currentOperation;
 };
 
-export const generateAudio = async (script: string): Promise<string> => {
+export const generateAudio = async (script: string, voice: string): Promise<string> => {
      if (!process.env.API_KEY) {
         throw new Error("API_KEY environment variable not set.");
     }
@@ -85,7 +85,7 @@ export const generateAudio = async (script: string): Promise<string> => {
             responseModalities: [Modality.AUDIO],
             speechConfig: {
                 voiceConfig: {
-                    prebuiltVoiceConfig: { voiceName: 'Kore' },
+                    prebuiltVoiceConfig: { voiceName: voice },
                 },
             },
         },

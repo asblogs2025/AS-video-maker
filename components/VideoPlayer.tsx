@@ -1,91 +1,100 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PlayIcon, ArrowDownTrayIcon } from './Icons';
 
 interface VideoPlayerProps {
     videoUrl: string;
-    audioData: string | null;
+    audioBuffer: AudioBuffer | null;
 }
 
-// Helper functions for audio processing
-function decode(base64: string): Uint8Array {
-    const binaryString = atob(base64);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes;
-}
+// Helper function to convert an AudioBuffer to a WAV Blob
+function audioBufferToWav(buffer: AudioBuffer): Blob {
+    const numOfChan = buffer.numberOfChannels;
+    const length = buffer.length * numOfChan * 2 + 44;
+    const bufferArray = new ArrayBuffer(length);
+    const view = new DataView(bufferArray);
+    const channels: Float32Array[] = [];
+    let i, sample;
+    let offset = 0;
+    let pos = 0;
 
-function writeWavHeader(samples: Int16Array, sampleRate: number, numChannels: number): ArrayBuffer {
-    const buffer = new ArrayBuffer(44 + samples.length * 2);
-    const view = new DataView(buffer);
-
-    // RIFF chunk descriptor
-    writeString(view, 0, 'RIFF');
-    view.setUint32(4, 36 + samples.length * 2, true);
-    writeString(view, 8, 'WAVE');
-    // fmt chunk
-    writeString(view, 12, 'fmt ');
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true); // PCM
-    view.setUint16(22, numChannels, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * numChannels * 2, true); // byteRate
-    view.setUint16(32, numChannels * 2, true); // blockAlign
-    view.setUint16(34, 16, true); // bitsPerSample
-    // data chunk
-    writeString(view, 36, 'data');
-    view.setUint32(40, samples.length * 2, true);
-
-    // Write the PCM data
-    let offset = 44;
-    for (let i = 0; i < samples.length; i++, offset += 2) {
-        view.setInt16(offset, samples[i], true);
+    for (i = 0; i < numOfChan; i++) {
+        channels.push(buffer.getChannelData(i));
     }
 
-    return buffer;
-}
+    // write WAVE header
+    setUint32(0x46464952); // "RIFF"
+    setUint32(length - 8); // file length - 8
+    setUint32(0x45564157); // "WAVE"
 
-function writeString(view: DataView, offset: number, str: string) {
-    for (let i = 0; i < str.length; i++) {
-        view.setUint8(offset + i, str.charCodeAt(i));
+    setUint32(0x20746d66); // "fmt " chunk
+    setUint32(16); // length = 16
+    setUint16(1); // PCM (uncompressed)
+    setUint16(numOfChan);
+    setUint32(buffer.sampleRate);
+    setUint32(buffer.sampleRate * 2 * numOfChan); // avg. bytes/sec
+    setUint16(numOfChan * 2); // block-align
+    setUint16(16); // 16-bit
+    setUint32(0x61746164); // "data" - chunk
+    setUint32(length - pos - 4); // chunk length
+
+    // write interleaved data
+    for (i = 0; i < buffer.length; i++) {
+        for (let j = 0; j < numOfChan; j++) {
+            sample = Math.max(-1, Math.min(1, channels[j][i]));
+            sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767) | 0;
+            view.setInt16(pos, sample, true);
+            pos += 2;
+        }
     }
+    
+    function setUint16(data: number) {
+        view.setUint16(pos, data, true);
+        pos += 2;
+    }
+
+    function setUint32(data: number) {
+        view.setUint32(pos, data, true);
+        pos += 4;
+    }
+    
+    return new Blob([view], { type: 'audio/wav' });
 }
 
-const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, audioData }) => {
-    const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
-    const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
+
+const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, audioBuffer }) => {
     const [isAudioPlaying, setIsAudioPlaying] = useState(false);
-    const [audioSource, setAudioSource] = useState<AudioBufferSourceNode | null>(null);
+    const audioContextRef = useRef<AudioContext | null>(null);
+    const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
     useEffect(() => {
-        if (audioData) {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
-            setAudioContext(ctx);
-            
-            const raw = decode(audioData);
-            const dataInt16 = new Int16Array(raw.buffer);
-            const frameCount = dataInt16.length;
-            const buffer = ctx.createBuffer(1, frameCount, 24000);
-            const channelData = buffer.getChannelData(0);
-            for (let i = 0; i < frameCount; i++) {
-                channelData[i] = dataInt16[i] / 32768.0;
-            }
-            setAudioBuffer(buffer);
+        if (audioBuffer && !audioContextRef.current) {
+            audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
         }
         
+        // Cleanup on component unmount or when audioBuffer changes
         return () => {
-          audioContext?.close();
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [audioData]);
+            if (audioSourceRef.current) {
+                audioSourceRef.current.stop();
+            }
+            if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+                audioContextRef.current.close().catch(console.error);
+                audioContextRef.current = null;
+            }
+        };
+    }, [audioBuffer]);
 
     const handlePlayAudio = () => {
+        const audioContext = audioContextRef.current;
         if (!audioContext || !audioBuffer) return;
+
+        if (audioContext.state === 'suspended') {
+            audioContext.resume();
+        }
         
         if (isAudioPlaying) {
-            audioSource?.stop();
+            if (audioSourceRef.current) {
+                audioSourceRef.current.stop();
+            }
             setIsAudioPlaying(false);
         } else {
             const source = audioContext.createBufferSource();
@@ -93,30 +102,26 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, audioData }) => {
             source.connect(audioContext.destination);
             source.onended = () => {
                 setIsAudioPlaying(false);
-                setAudioSource(null);
+                audioSourceRef.current = null;
             };
             source.start();
-            setAudioSource(source);
+            audioSourceRef.current = source;
             setIsAudioPlaying(true);
         }
     };
     
     const handleDownloadAudio = () => {
-        if (!audioData) return;
-        const raw = decode(audioData);
-        const dataInt16 = new Int16Array(raw.buffer);
-        const wavBuffer = writeWavHeader(dataInt16, 24000, 1);
-        const blob = new Blob([wavBuffer], { type: 'audio/wav' });
-        const url = URL.createObjectURL(blob);
+        if (!audioBuffer) return;
+        const wavBlob = audioBufferToWav(audioBuffer);
+        const url = URL.createObjectURL(wavBlob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'voice-over.wav';
+        a.download = 'generated-audio.wav';
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
     };
-
 
     return (
         <div className="w-full">
@@ -130,14 +135,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ videoUrl, audioData }) => {
                     <ArrowDownTrayIcon className="h-5 w-5 mr-2" />
                     Download Video
                 </a>
-                {audioData && (
+                {audioBuffer && (
                     <>
                         <button
                             onClick={handlePlayAudio}
                             className="flex-1 flex items-center justify-center bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition-colors"
                         >
                             <PlayIcon className="h-5 w-5 mr-2" />
-                            {isAudioPlaying ? 'Stop Voice-over' : 'Play Voice-over'}
+                            {isAudioPlaying ? 'Stop Audio' : 'Play Audio'}
                         </button>
                         <button
                             onClick={handleDownloadAudio}
